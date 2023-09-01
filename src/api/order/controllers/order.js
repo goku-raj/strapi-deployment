@@ -1,7 +1,6 @@
-"use strict";
+("use strict");
 // @ts-ignore
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-
 /**
  * order controller
  */
@@ -10,48 +9,47 @@ const { createCoreController } = require("@strapi/strapi").factories;
 
 module.exports = createCoreController("api::order.order", ({ strapi }) => ({
   async create(ctx) {
-    const { products, userName, email } = ctx.request.body;
+    const { products } = ctx.request.body;
     try {
-      // retrieve item information
       const lineItems = await Promise.all(
         products.map(async (product) => {
           const item = await strapi
-            .service("api::item.item")
+            .service("api::product.product")
             .findOne(product.id);
+
+          console.log("this is item------->", item);
+          console.log("this is product------->", product);
 
           return {
             price_data: {
-              currency: "usd",
+              currency: "inr",
               product_data: {
                 name: item.name,
               },
-              unit_amount: item.price * 100,
+              unit_amount: Math.round(item.price * 100),
             },
-            quantity: product.count,
+            quantity: product.quantity,
           };
         })
       );
 
-      // create a stripe session
       const session = await stripe.checkout.sessions.create({
+        shipping_address_collection: { allowed_countries: ["IN"] },
         payment_method_types: ["card"],
-        customer_email: email,
         mode: "payment",
         success_url: "https://localhost:5173/checkout/success",
         cancel_url: "https://localhost:5173",
         line_items: lineItems,
       });
 
-      // create the item
       await strapi
         .service("api::order.order")
-        .create({ data: { userName, products, stripeSessionId: session.id } });
+        .create({ data: { products, stripeId: session.id } });
 
-      // return the session id
-      return { id: session.id };
+      return { stripeSession: session };
     } catch (error) {
       ctx.response.status = 500;
-      return { error: { message: "There was a problem creating the charge" } };
+      return { error };
     }
   },
 }));
